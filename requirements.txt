@@ -1,0 +1,4 @@
+langchain
+selenium 
+bs4
+python-dotenv
