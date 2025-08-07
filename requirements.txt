@@ -1,4 +1,31 @@
-langchain
-selenium 
-bs4
-python-dotenv
+# --- Web Scraping Libraries ---
+# For advanced, stealthy browser automation to avoid being blocked
+undetected-chromedriver==3.5.0
+# Core library for browser automation, used by undetected-chromedriver
+selenium==4.15.0
+# For parsing HTML content fetched by Selenium
+beautifulsoup4==4.12.2
+# High-performance XML and HTML parser used by BeautifulSoup
+lxml==5.1.0
+
+# --- LangChain Libraries (Core, AI Models, and Community Components) ---
+# The base library for building applications with LLMs
+langchain==0.2.1
+# Community-maintained integrations for models, document loaders, etc.
+langchain-community==0.2.1
+# Specific integration for OpenAI-compatible models (like the one used)
+langchain-openai==0.1.7
+# Integration for Groq models, if you choose to use their fast inference API
+langchain-groq==0.1.3
+
+# --- Vector Store and Embeddings ---
+# The vector database used to store and retrieve product information
+chromadb==0.5.0
+# The library for generating sentence embeddings (powers HuggingFaceEmbeddings)
+sentence-transformers==2.7.0
+# Deprecated, but good for compatibility with older langchain tutorials
+huggingface-hub==0.23.0
+
+# --- Utilities ---
+# For loading environment variables (like API keys) from a .env file
+python-dotenv==1.0.1
