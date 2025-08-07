@@ -18,6 +18,32 @@ def get_chroma_client():
         embedding_function=embedding_function,
         persist_directory="data/chroma")
 
+
+def store_multiple_sites(urls: list, user_query: str):
+    """
+    Retrieves data from a list of websites, passing the user_query for context.
+    """
+    for url in urls:
+        print(f"Scraping from: {url}")
+        try:
+            # Pass the user_query to the scraping function
+            text, metadata = get_data_from_website(url, user_query)
+            if "No products found" in text or "No relevant products" in text:
+                print(f"Warning: {text} from {url}")
+                continue
+            docs = get_doc_chunks(text, metadata)
+            vector_store = get_chroma_client()
+            vector_store.add_documents(docs)
+            vector_store.persist()
+        except Exception as e:
+            print(f"Failed to process {url}: {e}")
+
+
+# *** FIX: Corrected import for ChatOpenAI ***
+from langchain_community.chat_models import ChatOpenAI
+from prompt import get_prompt
+from langchain.chains import ConversationalRetrievalChain
+
 def make_chain():
     """
     Creates a chain of langchain components.
