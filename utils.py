@@ -140,7 +140,8 @@ def store_multiple_sites(urls: list, user_query: str):
             print(f"Failed to process {url}: {e}")
 
 
-from langchain_community import ChatOpenAI
+# *** FIX: Corrected import for ChatOpenAI ***
+from langchain_community.chat_models import ChatOpenAI
 from prompt import get_prompt
 from langchain.chains import ConversationalRetrievalChain
 
