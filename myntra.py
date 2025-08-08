@@ -105,6 +105,7 @@ if __name__ == "__main__":
             print(f"  Title: {p['title']}")
             print(f"  Price: {p['price']}")
             print(f"  Link: {p['link']}")
+            print(f"  Thumbnail: {p['thumbnail']}")
             print("-" * 20)
     else:
         print("Could not retrieve specific products.")
