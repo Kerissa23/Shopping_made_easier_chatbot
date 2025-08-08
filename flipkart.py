@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 def get_flipkart_data(query):
     """
     Gets specific product data from Flipkart using requests/BeautifulSoup.
-    Handles lazy-loaded images properly and adapts to multiple Flipkart layouts.
+    This version returns clean, short URLs for the products.
     """
     search_url = f"https://www.flipkart.com/search?q={query.replace(' ', '+')}"
     
@@ -23,7 +23,6 @@ def get_flipkart_data(query):
 
     soup = BeautifulSoup(response.content, "html.parser")
     
-    # Product blocks from different Flipkart layouts
     product_blocks = soup.select("div._2kHMtA, div._4ddWXP, div.cPHDOP")
 
     if not product_blocks:
@@ -39,29 +38,30 @@ def get_flipkart_data(query):
         price_element = block.select_one("._30jeq3, .Nx9bqj._4b5DiR")
         link_element = block.select_one("a._1fQZEK, a.s1Q9rs, a.CGtC98")
         
-        # --- IMPROVED IMAGE HANDLING ---
         image_element = block.select_one("img._396cs4, img._2r_T1I, img.DByuf4")
         thumbnail = 'N/A'
         if image_element:
-            # Check multiple lazy-load patterns
             thumbnail = (
-                image_element.get('src') or
                 image_element.get('data-src') or
+                image_element.get('src') or
                 image_element.get('srcset', '').split(" ")[0]
             )
-
-            # If still relative URL, join with base URL
             if thumbnail and not thumbnail.startswith("http"):
                 thumbnail = urljoin(base_url, thumbnail)
 
         if title_element and price_element and link_element and link_element.has_attr('href'):
-            full_link = urljoin(base_url, link_element['href'])
+            # Get the full, long URL
+            raw_link = urljoin(base_url, link_element['href'])
             
-            if '/p/' in full_link:  # Only product pages
+            # --- THIS IS THE NEW, CORRECTED PART FOR THE LINK ---
+            # Shorten the link by removing all tracking parameters after the '?'
+            short_link = raw_link.split('?')[0]
+            
+            if '/p/' in short_link:  # Only add valid product pages
                 results.append({
                     "title": title_element.get_text(strip=True),
                     "price": price_element.get_text(strip=True),
-                    "link": full_link,
+                    "link": short_link, # Use the new, short link
                     "source": "Flipkart",
                     "thumbnail": thumbnail
                 })
@@ -78,7 +78,7 @@ if __name__ == "__main__":
             print("-" * 20)
             print(f"Title:     {p['title']}")
             print(f"Price:     {p['price']}")
-            print(f"Link:      {p['link']}")
+            print(f"Link:      {p['link']}") # This will now be a short link
             print(f"Thumbnail: {p['thumbnail']}")
         print("-" * 20)
     else:
