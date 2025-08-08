@@ -1,117 +1,85 @@
-import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
 def get_flipkart_data(query):
     """
-    Scrapes Flipkart for a given query using Selenium to get specific product details.
-
-    Args:
-        query (str): The product search query.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary represents a product.
+    Gets specific product data from Flipkart using requests/BeautifulSoup.
+    Handles lazy-loaded images properly and adapts to multiple Flipkart layouts.
     """
-    # Setup selenium webdriver
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920x1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36")
+    search_url = f"https://www.flipkart.com/search?q={query.replace(' ', '+')}"
     
-    driver = None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+    }
+
     try:
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        
-        # Navigate to Flipkart's search page
-        search_url = f"https://www.flipkart.com/search?q={query.replace(' ', '+')}"
-        driver.get(search_url)
-
-        # Wait for the main product container to load
-        # Flipkart's layout can vary, so we target a common container class '_1YokD2'
-        wait = WebDriverWait(driver, 20)
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, '_1YokD2')))
-        
-        time.sleep(2) # Allow a moment for dynamic content to settle
-
-        # Get the page source and parse it with BeautifulSoup
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        
-    except Exception as e:
-        print(f"An error occurred during Selenium execution for Flipkart: {e}")
+        print(f"Fetching Flipkart page for '{query}'...")
+        response = requests.get(search_url, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Failed to fetch Flipkart page: {e}")
         return []
-    finally:
-        if driver:
-            driver.quit()
 
-    results = []
-    # Flipkart has different classes for grid and list view. We'll try to catch the most common ones.
-    # The '_1AtVbE' class usually holds the list of products.
-    product_list = soup.find_all('div', class_='_1AtVbE')
+    soup = BeautifulSoup(response.content, "html.parser")
     
-    # If the above class doesn't work, let's try another common container for each product.
-    if not product_list:
-        product_list = soup.find_all('div', {'class': '_4ddWXP'}) # For list view items
-    if not product_list:
-         product_list = soup.find_all('div', {'class': '_2kHMtA'}) # For grid view items
+    # Product blocks from different Flipkart layouts
+    product_blocks = soup.select("div._2kHMtA, div._4ddWXP, div.cPHDOP")
 
-    if not product_list:
-        print("No specific products found on Flipkart for the given query.")
+    if not product_blocks:
+        print("Could not find any product blocks — Flipkart’s structure may have changed.")
         return []
-
-    base_url = "https://www.flipkart.com"
-
-    for product in product_list:
-        # Product title is often in a div with class '_4rR01T'
-        title_tag = product.find('div', class_='_4rR01T')
-        if not title_tag:
-            title_tag = product.find('a', class_='s1Q9rs') # Fallback for different view
-
-        # Price is in a div with class '_30jeq3'
-        price_tag = product.find('div', class_='_30jeq3')
         
-        # The link is on an 'a' tag, often with class '_1fQZEK'
-        link_tag = product.find('a', class_='_1fQZEK')
-        if not link_tag:
-             link_tag = product.find('a', class_='_2UzuFA') # Fallback
+    results = []
+    base_url = "https://www.flipkart.com"
+    
+    print(f"Found {len(product_blocks)} potential product blocks. Parsing...")
+    for block in product_blocks:
+        title_element = block.select_one("._4rR01T, .s1Q9rs, .KzDlHZ")
+        price_element = block.select_one("._30jeq3, .Nx9bqj._4b5DiR")
+        link_element = block.select_one("a._1fQZEK, a.s1Q9rs, a.CGtC98")
+        
+        # --- IMPROVED IMAGE HANDLING ---
+        image_element = block.select_one("img._396cs4, img._2r_T1I, img.DByuf4")
+        thumbnail = 'N/A'
+        if image_element:
+            # Check multiple lazy-load patterns
+            thumbnail = (
+                image_element.get('src') or
+                image_element.get('data-src') or
+                image_element.get('srcset', '').split(" ")[0]
+            )
 
-        # Image is in an 'img' tag with class '_396cs4'
-        image_tag = product.find('img', class_='_396cs4')
+            # If still relative URL, join with base URL
+            if thumbnail and not thumbnail.startswith("http"):
+                thumbnail = urljoin(base_url, thumbnail)
 
-        # Only proceed if we have the essential information
-        if title_tag and price_tag and link_tag and link_tag.has_attr('href'):
-            title = title_tag.text.strip()
-            price = price_tag.text.strip()
-            # The URL is relative, so we join it with the base URL
-            link = urljoin(base_url, link_tag['href'])
-            thumbnail = image_tag['src'] if image_tag and image_tag.has_attr('src') else 'N/A'
-
-            results.append({
-                "title": title,
-                "price": price,
-                "link": link,
-                "source": "Flipkart",
-                "thumbnail": thumbnail
-            })
+        if title_element and price_element and link_element and link_element.has_attr('href'):
+            full_link = urljoin(base_url, link_element['href'])
+            
+            if '/p/' in full_link:  # Only product pages
+                results.append({
+                    "title": title_element.get_text(strip=True),
+                    "price": price_element.get_text(strip=True),
+                    "link": full_link,
+                    "source": "Flipkart",
+                    "thumbnail": thumbnail
+                })
 
     return results
 
-# Example usage for testing
+# Example usage
 if __name__ == "__main__":
-    print("Searching for 'redmi phone' on Flipkart...")
-    products = get_flipkart_data("redmi phone")
+    products = get_flipkart_data("TV")
+    
     if products:
-        print(f"\nFound {len(products)} specific products on Flipkart:")
-        for p in products[:5]:  # Print first 5 results
-            print(f"  Title: {p['title']}")
-            print(f"  Price: {p['price']}")
-            print(f"  Link: {p['link']}")
+        print(f"\nSuccessfully parsed {len(products)} products from Flipkart:")
+        for p in products[:5]:
             print("-" * 20)
+            print(f"Title:     {p['title']}")
+            print(f"Price:     {p['price']}")
+            print(f"Link:      {p['link']}")
+            print(f"Thumbnail: {p['thumbnail']}")
+        print("-" * 20)
     else:
-        print("Could not retrieve specific products from Flipkart.")
+        print("\nExecution finished. No products retrieved.")

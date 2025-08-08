@@ -1,75 +1,85 @@
-import os
 import requests
-from dotenv import load_dotenv
-import json
-import re
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-def get_flipkart_product_links(query):
+def get_flipkart_data(query):
     """
-    Fetches direct links to Flipkart products using the DuckDuckGo engine.
-    This method reliably gets product links and filters out category/search pages.
+    Gets specific product data from Flipkart using requests/BeautifulSoup.
+    Handles lazy-loaded images properly and adapts to multiple Flipkart layouts.
     """
-    load_dotenv(dotenv_path=".env.sh", override=True)
-    API_KEY = os.getenv("SERPAPI_API_KEY")
-
-    if not API_KEY:
-        print("Error: SERPAPI_API_KEY not found. Please check your .env.sh file.")
-        return []
-
-    # Use the reliable DuckDuckGo engine with a site search.
-    params = {
-        "api_key": API_KEY,
-        "engine": "duckduckgo",
-        "q": f"{query} site:flipkart.com"
+    search_url = f"https://www.flipkart.com/search?q={query.replace(' ', '+')}"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
     }
 
     try:
-        print("Querying SerpApi with the DuckDuckGo engine (with improved filtering)...")
-        response = requests.get("https://serpapi.com/search.json", params=params)
+        print(f"Fetching Flipkart page for '{query}'...")
+        response = requests.get(search_url, headers=headers)
         response.raise_for_status()
-        data = response.json()
     except requests.RequestException as e:
-        print(f"Request failed: {e}")
+        print(f"Failed to fetch Flipkart page: {e}")
         return []
 
-    organic_results = data.get("organic_results")
-    if not organic_results:
-        print("Request successful, but no organic results were found.")
+    soup = BeautifulSoup(response.content, "html.parser")
+    
+    # Product blocks from different Flipkart layouts
+    product_blocks = soup.select("div._2kHMtA, div._4ddWXP, div.cPHDOP")
+
+    if not product_blocks:
+        print("Could not find any product blocks — Flipkart’s structure may have changed.")
         return []
-
-    print("Filtering results to find direct product links...")
-    product_links = []
-    for result in organic_results:
-        link = result.get("link")
-        title = result.get("title")
-
-        # --- Intelligent Filtering ---
-        # 1. Skip if the link is clearly a search or category page.
-        if "/q/" in link or "/pr?" in link or "/stores/" in link:
-            continue
         
-        # 2. Skip if the link does not look like a modern Flipkart product URL (which often have '/p/').
-        if "/p/" not in link:
-             continue
+    results = []
+    base_url = "https://www.flipkart.com"
+    
+    print(f"Found {len(product_blocks)} potential product blocks. Parsing...")
+    for block in product_blocks:
+        title_element = block.select_one("._4rR01T, .s1Q9rs, .KzDlHZ")
+        price_element = block.select_one("._30jeq3, .Nx9bqj._4b5DiR")
+        link_element = block.select_one("a._1fQZEK, a.s1Q9rs, a.CGtC98")
+        
+        # --- IMPROVED IMAGE HANDLING ---
+        image_element = block.select_one("img._396cs4, img._2r_T1I, img.DByuf4")
+        thumbnail = 'N/A'
+        if image_element:
+            # Check multiple lazy-load patterns
+            thumbnail = (
+                image_element.get('src') or
+                image_element.get('data-src') or
+                image_element.get('srcset', '').split(" ")[0]
+            )
 
-        # 3. Skip if the title suggests it's not a single product.
-        if "online in india" in title.lower() or "under" in title.lower():
-            continue
+            # If still relative URL, join with base URL
+            if thumbnail and not thumbnail.startswith("http"):
+                thumbnail = urljoin(base_url, thumbnail)
 
-        product_links.append({
-            "title": title.replace("- Flipkart", "").strip(), # Clean up the title
-            "link": link,
-            "source": "Flipkart"
-        })
+        if title_element and price_element and link_element and link_element.has_attr('href'):
+            full_link = urljoin(base_url, link_element['href'])
+            
+            if '/p/' in full_link:  # Only product pages
+                results.append({
+                    "title": title_element.get_text(strip=True),
+                    "price": price_element.get_text(strip=True),
+                    "link": full_link,
+                    "source": "Flipkart",
+                    "thumbnail": thumbnail
+                })
 
-    return product_links
+    return results
 
 # Example usage
 if __name__ == "__main__":
-    products = get_flipkart_product_links("redmi phone")
+    products = get_flipkart_data("TV")
+    
     if products:
-        print(f"\nSuccess! Found {len(products)} direct links to products on Flipkart.")
-        for p in products:
-            print(f"- Title: {p.get('title')}\n  Source: {p.get('source')}\n  Link: {p.get('link')}\n")
+        print(f"\nSuccessfully parsed {len(products)} products from Flipkart:")
+        for p in products[:5]:
+            print("-" * 20)
+            print(f"Title:     {p['title']}")
+            print(f"Price:     {p['price']}")
+            print(f"Link:      {p['link']}")
+            print(f"Thumbnail: {p['thumbnail']}")
+        print("-" * 20)
     else:
-        print("\nExecution finished. No direct product links could be found.")
+        print("\nExecution finished. No products retrieved.")
