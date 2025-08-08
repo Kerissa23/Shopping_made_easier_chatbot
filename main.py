@@ -44,7 +44,7 @@ def shopping_chatbot():
             continue
 
         all_products = flipkart_products + myntra_products + snapdeal_products
-
+        
         if not all_products:
             print("\nSorry, I couldn't find any products matching your query. Please try a different search.")
             continue
