@@ -1,7 +1,7 @@
 
 import os
 import shutil
-from flipkart import get_flipkart_product_links
+from flipkart import get_flipkart_data
 from myntra import get_myntra_data
 from snapdeal import get_snapdeal_data
 from utils import get_response, get_chroma_client
@@ -35,7 +35,7 @@ def shopping_chatbot():
 
         # Step 1: Fetch data from all e-commerce sources
         try:
-            flipkart_products = get_flipkart_product_links(query)
+            flipkart_products = get_flipkart_data(query)
             myntra_products = get_myntra_data(query)
             snapdeal_products = get_snapdeal_data(query)
         except Exception as e:
