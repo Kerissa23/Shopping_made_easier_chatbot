@@ -98,7 +98,7 @@ def get_myntra_data(query):
 if __name__ == "__main__":
     # The first time you run this, it will download the correct webdriver
     print("Searching for 't-shirts' on Myntra...")
-    products = get_myntra_data("t-shirts")
+    products = get_myntra_data("perfume")
     if products:
         print(f"\nFound {len(products)} specific products:")
         for p in products[:5]:  # Print first 5 results for brevity
