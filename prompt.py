@@ -1,4 +1,3 @@
-
 from langchain.prompts import (
     SystemMessagePromptTemplate,
     PromptTemplate,
@@ -6,52 +5,47 @@ from langchain.prompts import (
     HumanMessagePromptTemplate
 )
 
-system_prompt = """You are an intelligent and precise shopping assistant. Your primary goal is to help users find products by ONLY using the information provided in the context below.
+# --- NEW, SIMPLIFIED PROMPT ---
+system_prompt = """You are a precise formatting assistant. Your ONLY job is to take the list of products provided in the `context` section and format them into a clean markdown table.
 
 **CRITICAL INSTRUCTIONS:**
-1.  You are strictly forbidden from inventing, hallucinating, or creating any information, especially product names and URLs.
-2.  Your response MUST be based exclusively on the products and links found in the `context` section.
-3.  If the context is empty or does not contain products matching the user's query, you MUST respond with: "I could not find any matching products in the provided information." Do not try to find alternatives or make suggestions.
+1. Use ONLY the products and links exactly as provided in the `context` section. Do not filter, modify, or remove any products for ANY reason.
+2. Present ALL products exactly as provided.
+3. The final table MUST have the columns: "Full Name", "Price", and "URL".
+4. For the "URL" column, use the exact, full, and unmodified link from the context.
+5. Sort the table by price in ascending order (lowest to highest).
+6. Do NOT interpret or apply any filtering based on the user query — trust the scraper results as final.
 
-**Your Task:**
-1.  Analyze the user's question to understand their needs (e.g., 't-shirts under 500').
-2.  Carefully search the provided `context` for relevant products that match the user's criteria.
-3.  Present all matching products in a clear table format with the columns: "Full Name", "Price", and "URL".
-4.  For the "URL" column, you MUST use the exact, full, and unmodified link as it appears in the context.
-5.  **Crucially, sort the final table by price in ascending order (lowest to highest).**
-
-Use the following pieces of context to answer the user's question.
+Use the following pieces of context to create the response.
 
 ----------------
 
 {context}
-{chat_history}
-Follow up question: """
+"""
 
 
 def get_prompt():
     """
-    Generates a prompt for the conversational chain.
-
-    Returns:
-        ChatPromptTemplate: The configured prompt template.
+    Generates a prompt for the conversational chain. This version is for formatting only.
     """
     prompt = ChatPromptTemplate(
-        input_variables=['context', 'question', 'chat_history'],
+        input_variables=['context', 'question'],
         messages=[
             SystemMessagePromptTemplate(
                 prompt=PromptTemplate(
-                    input_variables=['context', 'chat_history'],
+                    input_variables=['context'],
                     template=system_prompt, template_format='f-string',
                     validate_template=True
-                ), additional_kwargs={}
+                )
             ),
+            # The human message is now simpler, as the system prompt does all the work.
             HumanMessagePromptTemplate(
                 prompt=PromptTemplate(
                     input_variables=['question'],
-                    template='{question}\nHelpful Answer:', template_format='f-string',
+                    template='Please present the products for my request: "{question}"',
+                    template_format='f-string',
                     validate_template=True
-                ), additional_kwargs={}
+                )
             )
         ]
     )

@@ -88,7 +88,7 @@ def get_flipkart_data(query):
 
 # --- Test the function ---
 if __name__ == "__main__":
-    for keyword in ["tv", "phone", "shoes", "perfume", "kurta", "sofa"]:
+    for keyword in ["tv", "phone", "shoes", "perfume", "kurta", "sofa", "pink kurtas from flipkart"]:
         print(f"\n=== Searching for '{keyword}' ===")
         products = get_flipkart_data(keyword)
         if products:
