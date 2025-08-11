@@ -1,8 +1,4 @@
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.chat_models import ChatOpenAI
-from langchain.chains import ConversationalRetrievalChain
-from prompt import get_prompt
 from dotenv import load_dotenv
 import json
 import re
@@ -17,66 +13,42 @@ def get_llm():
         verbose=True,
     )
 
-def get_chroma_client():
-    """Returns a chroma vector store instance."""
-    embedding_function = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    return Chroma(
-        collection_name="website_data",
-        embedding_function=embedding_function,
-        persist_directory="data/chroma")
-
-def make_chain():
-    """Creates the full conversational chain."""
-    model = get_llm()
-    vector_store = get_chroma_client()
-    prompt = get_prompt()
-    
-    chain = ConversationalRetrievalChain.from_llm(
-        model,
-        retriever=vector_store.as_retriever(),
-        return_source_documents=True,
-        combine_docs_chain_kwargs=dict(prompt=prompt),
-        verbose=True,
-        rephrase_question=True,
-    )
-    return chain
-
-def get_response(question, chat_history):
-    """Generates the final, formatted table response from the LLM."""
-    chain = make_chain()
-    response = chain({"question": question, "chat_history": chat_history})
-    return response['answer']
-
-def parse_query_to_keywords(query, chat_history):
+def parse_user_intent(query, chat_history):
     """
-    Uses the LLM to convert a natural language query into an effective
-    e-commerce search term, using history for context.
+    Uses the LLM to determine user intent: new search, filter, show more, or unsupported.
     """
     parsing_prompt_template = """
-    You are an expert e-commerce search query optimizer. Your task is to take a user's conversational query
-    and the chat history, and convert it into a clean, effective search keyword phrase.
+    You are an expert query analyzer for a shopping bot. Your task is to determine the user's intent based on their latest query and the chat history.
+    The intent can be one of four things:
+    1. "new_search": The user is starting a new search for a different product, or is fundamentally changing the criteria of the last search (like price).
+    2. "filter_results": The user is asking to refine the *previous* search results by a simple criteria (like a store name).
+    3. "show_more": The user is asking for "more suggestions", "next", etc.
+    4. "unsupported": The query is a greeting, a thank you, or unrelated to shopping.
 
+    Analyze the context below:
     **Chat History:**
     {chat_history}
     
     **Latest User Query:** "{user_query}"
     
-    Extract the core product and all relevant attributes (color, brand, gender, etc.)
-    and create a single, powerful search string.
+    Respond ONLY with a JSON object.
+    For "new_search", the value MUST be an optimized search query.
+    For "filter_results", the value MUST be a single keyword to filter by (e.g., "flipkart").
     
-    Respond ONLY with a JSON object in the following format:
     {{
-      "keywords": "the optimized search keywords"
+      "intent": "new_search" | "filter_results" | "show_more" | "unsupported",
+      "value": "The search query, filter keyword, or null"
     }}
 
-    Example 1 (Follow-up):
-    Chat History: [("show me purple kurtas", "...")]
-    Latest User Query: "only from myntra"
-    Response: {{"keywords": "purple kurtas from myntra"}}
-
-    Example 2 (New Search):
-    Latest User Query: "i want red shoes between 1000 and 3000"
-    Response: {{"keywords": "red shoes between 1000 and 3000"}}
+    --- EXAMPLES ---
+    Query: "hi" -> {{"intent": "unsupported", "value": null}}
+    Query: "pink kurtas for women" -> {{"intent": "new_search", "value": "pink kurtas for women"}}
+    
+    History: [("pink kurtas", "...")] | Query: "from myntra" -> {{"intent": "filter_results", "value": "myntra"}}
+    History: [("pink kurtas", "...")] | Query: "more suggestions" -> {{"intent": "show_more", "value": null}}
+    
+    History: [("pink kurtas", "...")] | Query: "above 500" -> {{"intent": "new_search", "value": "pink kurtas above 500"}}
+    History: [("pink kurtas", "...")] | Query: "what about in blue" -> {{"intent": "new_search", "value": "blue kurtas"}}
     """
     
     llm = get_llm()
@@ -88,8 +60,11 @@ def parse_query_to_keywords(query, chat_history):
     try:
         json_string = re.search(r'\{.*\}', response.content, re.DOTALL).group()
         parsed_data = json.loads(json_string)
-        print(f"LLM extracted keywords as: {parsed_data}")
-        return parsed_data.get("keywords", query)
+        print(f"LLM successfully parsed intent as: {parsed_data}")
+        return parsed_data
     except (json.JSONDecodeError, AttributeError) as e:
-        print(f"Error parsing keywords from LLM: {e}. Using raw query.")
-        return query
+        print(f"Error parsing LLM intent: {e}. Defaulting to new search.")
+        return {"intent": "new_search", "value": query}
+
+# Remove unused functions to simplify the file
+# get_chroma_client, make_chain, get_response are not used by the backend.
