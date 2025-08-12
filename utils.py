@@ -49,3 +49,47 @@ def parse_query_to_keywords(query, chat_history):
     except Exception as e:
         print(f"Error during keyword parsing: {e}. Defaulting to original query.")
         return query
+    
+def classify_intent(query, chat_history):
+    """
+    Uses an LLM to classify the user's intent to handle generic questions.
+    """
+    intent_prompt_template = """
+    You are an intent classification model for a shopping assistant.
+    Your task is to classify the user's latest message into one of the following categories:
+    'greeting', 'farewell', 'product_search', 'generic_query'.
+
+    - 'greeting': For hellos, hi, etc.
+    - 'farewell': For goodbyes, bye, etc.
+    - 'product_search': For any query asking for products, brands, or item types.
+    - 'generic_query': For conversational questions not related to shopping (e.g., "how are you?", "what is your purpose?", "tell me a joke").
+
+    **Chat History (for context):**
+    {chat_history}
+
+    **Latest User Query:** "{user_query}"
+
+    Respond ONLY with the classification label (e.g., 'product_search', 'generic_query').
+    ---
+    Query: "hi there" -> 'greeting'
+    Query: "show me some nike shoes" -> 'product_search'
+    Query: "how are you today?" -> 'generic_query'
+    Query: "thanks bye" -> 'farewell'
+    Query: "got any laptops?" -> 'product_search'
+    Query: "for girls" -> 'product_search'
+    Query: "what are you doing" -> 'generic_query'
+    """
+    llm = get_llm()
+    history_str = "\n".join([f"Human: {q}\nAI: {a}" for q, a in chat_history])
+    prompt = intent_prompt_template.format(user_query=query, chat_history=history_str)
+    
+    try:
+        response = llm.invoke(prompt)
+        intent = response.content.strip().replace("'", "")
+        print(f"LLM classified intent as: '{intent}'")
+        if intent in ['greeting', 'farewell', 'product_search', 'generic_query']:
+            return intent
+        return 'product_search' # Default to search if classification is unclear
+    except Exception as e:
+        print(f"Error during intent classification: {e}. Defaulting to 'product_search'.")
+        return 'product_search'

@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 from flipkart import get_flipkart_data
 from myntra import get_myntra_data
 from snapdeal import get_snapdeal_data
-from utils import parse_query_to_keywords, get_llm
+from utils import parse_query_to_keywords, get_llm, classify_intent
 
 app = FastAPI(title="ShopSmart AI Backend")
 
@@ -47,12 +47,11 @@ async def chat(request: ChatRequest):
     print(f"\nReceived message: '{user_message}'")
     
     # --- FIX: Handle greetings and farewells before parsing keywords ---
-    greetings = ["hi", "hello", "hey", "hola"]
-    farewells = ["bye", "goodbye", "see you later", "exit"]
+    intent = classify_intent(user_message, state.chat_history)
 
     user_msg_lower = user_message.lower().strip()
 
-    if user_msg_lower in greetings:
+    if intent == "greeting":
         bot_message = "Hello! What can I help you find today?"
         state.chat_history.append((user_message, bot_message))
         return ChatResponse(
@@ -61,12 +60,44 @@ async def chat(request: ChatRequest):
             new_state=state
         )
     
-    elif user_msg_lower in farewells:
+    elif intent == "farewell":
         bot_message = "Goodbye! Happy shopping!"
         state.chat_history.append((user_message, bot_message))
         return ChatResponse(
             bot_message=bot_message,
             products_to_display=[],
+            new_state=state
+        )
+    elif intent == 'generic_query':
+        bot_message = "I'm your personal shopping assistant! To help you find what you need, here are some trending products to get you started."
+        keywords = "trending products"  # Default search for generic questions
+        
+        print(f"Handling generic query. Searching for default keywords: '{keywords}'...")
+        flipkart_products = get_flipkart_data(keywords)
+        myntra_products = get_myntra_data(keywords)
+        snapdeal_products = get_snapdeal_data(keywords)
+        
+        state.session_products = flipkart_products + myntra_products + snapdeal_products
+        state.current_view = state.session_products
+        state.display_offset = 0
+
+        if not state.session_products:
+            bot_message = "Sorry, I couldn't find any products for that search."
+        else:
+            balanced_initial_view = []
+        balanced_initial_view.extend(flipkart_products[:5])
+        balanced_initial_view.extend(myntra_products[:5])
+        balanced_initial_view.extend(snapdeal_products[:5])
+        products_to_display = balanced_initial_view
+        #bot_message = f"I found {len(state.session_products)} products! Here are the top results."
+        
+        products_to_display.sort(key=lambda p: parse_price(p.get('price')))
+        state.display_offset = len(products_to_display)
+        state.chat_history.append((user_message, bot_message))
+
+        return ChatResponse(
+            bot_message=bot_message,
+            products_to_display=products_to_display,
             new_state=state
         )
 
