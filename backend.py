@@ -1,174 +1,176 @@
-import os
-import re
-import shutil
-import time
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+import os
+from dotenv import load_dotenv
+from groq import Groq
 
+from utils import parse_query_to_keywords, parse_price, classify_intent
 from flipkart import get_flipkart_data
 from myntra import get_myntra_data
 from snapdeal import get_snapdeal_data
-from utils import parse_query_to_keywords, get_llm, classify_intent
+
+# Load environment variables
+load_dotenv('.env.sh')
+client = Groq(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI(title="ShopSmart AI Backend")
 
-# --- Data Models ---
-class ChatState(BaseModel):
-    session_products: List[Dict[str, Any]] = []
-    current_view: List[Dict[str, Any]] = []
-    display_offset: int = 0
-    chat_history: List[tuple[str, str]] = []
+# -------------------------------
+# Helper: LLM product analysis
+# -------------------------------
+def analyze_with_llm(user_message, products):
+    product_descriptions = "\n".join(
+        [f"{i+1}. {p['title']} - {p['price']} ({p['source']})"
+         for i, p in enumerate(products)]
+    )
 
-class ChatRequest(BaseModel):
-    message: str
-    state: ChatState
+    prompt = f"""
+    You are a shopping assistant. 
+    User message: "{user_message}"
+    Here are the products currently in database:
+    {product_descriptions}
+
+    If the user asks about specific product numbers, describe them.
+    If they ask for comparisons, filter accordingly.
+    Always use only the products listed above.
+    If there are no products in the database according to the user message, just respond with 'Null'.
+    If the user is asking for more, just respond with 'More'.
+    """
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a shopping assistant."},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    return response.choices[0].message.content
+
+
+# -------------------------------
+# Request/Response Schemas
+# -------------------------------
+class ChatInput(BaseModel):
+    user_message: str  # frontend always sends this
 
 class ChatResponse(BaseModel):
     bot_message: str
-    products_to_display: List[Dict[str, Any]]
-    new_state: ChatState
+    products: List[Dict[str, Any]]
 
-# --- Business Logic ---
-def parse_price(price_str: Optional[str]) -> int:
-    if not isinstance(price_str, str): return float('inf')
-    cleaned_price = re.sub(r'[^\d.]', '', price_str)
-    try: return int(float(cleaned_price))
-    except (ValueError, TypeError): return float('inf')
 
-# --- Main API Endpoint ---
+# -------------------------------
+# In-memory session state
+# -------------------------------
+temp_db = {"products": [], "counter": 0}
+chat_history = []
+last_results = []
+
+
+# -------------------------------
+# Chat Endpoint
+# -------------------------------
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    user_message = request.message
-    state = request.state
-    
-    print(f"\nReceived message: '{user_message}'")
-    
-    # --- FIX: Handle greetings and farewells before parsing keywords ---
-    intent = classify_intent(user_message, state.chat_history)
+async def chat_endpoint(input_data: ChatInput):
+    try:
+        print("DEBUG raw input:", input_data.dict())
+        global last_results, temp_db, chat_history
 
-    user_msg_lower = user_message.lower().strip()
+        user_message = input_data.user_message.strip().lower()
+        print(user_message)
 
-    if intent == "greeting":
-        bot_message = "Hello! What can I help you find today?"
-        state.chat_history.append((user_message, bot_message))
-        return ChatResponse(
-            bot_message=bot_message,
-            products_to_display=[],
-            new_state=state
-        )
-    
-    elif intent == "farewell":
-        bot_message = "Goodbye! Happy shopping!"
-        state.chat_history.append((user_message, bot_message))
-        return ChatResponse(
-            bot_message=bot_message,
-            products_to_display=[],
-            new_state=state
-        )
-    elif intent == 'generic_query':
-        bot_message = "I'm your personal shopping assistant! To help you find what you need, here are some trending products to get you started."
-        keywords = "trending products"  # Default search for generic questions
-        
-        print(f"Handling generic query. Searching for default keywords: '{keywords}'...")
-        flipkart_products = get_flipkart_data(keywords)
-        myntra_products = get_myntra_data(keywords)
-        snapdeal_products = get_snapdeal_data(keywords)
-        
-        state.session_products = flipkart_products + myntra_products + snapdeal_products
-        state.current_view = state.session_products
-        state.display_offset = 0
-
-        if not state.session_products:
-            bot_message = "Sorry, I couldn't find any products for that search."
+        # --- Check product references ---
+        if "first product" in user_message or "1st product" in user_message:
+            index = 0
+        elif "second product" in user_message or "2nd product" in user_message:
+            index = 1
+        elif "third product" in user_message or "3rd product" in user_message:
+            index = 2
         else:
-            balanced_initial_view = []
-        balanced_initial_view.extend(flipkart_products[:5])
-        balanced_initial_view.extend(myntra_products[:5])
-        balanced_initial_view.extend(snapdeal_products[:5])
-        products_to_display = balanced_initial_view
-        #bot_message = f"I found {len(state.session_products)} products! Here are the top results."
-        
-        products_to_display.sort(key=lambda p: parse_price(p.get('price')))
-        state.display_offset = len(products_to_display)
-        state.chat_history.append((user_message, bot_message))
+            index = None
 
-        return ChatResponse(
-            bot_message=bot_message,
-            products_to_display=products_to_display,
-            new_state=state
-        )
+        if index is not None and last_results:
+            if index < len(last_results):
+                product = last_results[index]
+                bot_message = (
+                    f"Here’s more about the {['first','second','third'][index]} product:\n\n"
+                    f"**{product.get('title')}**\n"
+                    f"Price: {product.get('price')}\n"
+                    f"Source: {product.get('source')}\n"
+                    f"Link: {product.get('link')}\n"
+                )
+                return ChatResponse(bot_message=bot_message, products=[product])
+            else:
+                return ChatResponse(bot_message="That product number doesn’t exist in the current results.", products=[])
 
-    bot_message = ""
-    products_to_display = []
-    PAGE_SIZE = 15
+        # --- Classify intent ---
+        intent = classify_intent(user_message)
 
-    is_new_search = "more" not in user_message.lower()
+        if intent == "product_search":
+            # Reuse temp DB if not too old
+            if temp_db["products"] and temp_db["counter"] < 10:
+                description = analyze_with_llm(user_message, temp_db["products"])
+                if description not in ("Null", "More"):
+                    keywords = parse_query_to_keywords(user_message, chat_history)
+                    chat_history.append(keywords)
+                    temp_db["counter"] += 1
+                    return ChatResponse(bot_message=description, products=temp_db["products"])
 
-    if is_new_search or not state.session_products:
-        keywords = parse_query_to_keywords(user_message, state.chat_history)
-        print(f"Starting new search for: '{keywords}'...")
-        
-        flipkart_products = get_flipkart_data(keywords)
-        myntra_products = get_myntra_data(keywords)
-        snapdeal_products = get_snapdeal_data(keywords)
-        
-        state.session_products = flipkart_products + myntra_products + snapdeal_products
-        state.current_view = state.session_products
-        state.display_offset = 0
+            # Otherwise fetch new products
+            keywords = parse_query_to_keywords(user_message, chat_history)
+            chat_history.append(keywords)
+            flipkart_products = get_flipkart_data(keywords)
+            myntra_products = get_myntra_data(keywords)
+            snapdeal_products = get_snapdeal_data(keywords)
 
-        if not state.session_products:
-            bot_message = "Sorry, I couldn't find any products for that search."
-        else:
+            all_products = flipkart_products + myntra_products + snapdeal_products
             balanced_initial_view = []
             balanced_initial_view.extend(flipkart_products[:5])
             balanced_initial_view.extend(myntra_products[:5])
             balanced_initial_view.extend(snapdeal_products[:5])
             products_to_display = balanced_initial_view
-            bot_message = f"I found {len(state.session_products)} products! Here are the top results."
-            state.display_offset = len(products_to_display)
-            
-    else: 
-        if "more" in user_message.lower():
-            print(f"Showing more results from the current view of {len(state.current_view)} products...")
-            if state.display_offset >= len(state.current_view):
-                bot_message = "You've seen all the results for this view!"
-            else:
-                end_offset = state.display_offset + PAGE_SIZE
-                products_to_display = state.current_view[state.display_offset:end_offset]
-                state.display_offset = end_offset
-                bot_message = "Here are the next results:"
-        else:
-             bot_message = "Sorry, I'm not sure how to handle that. Please try a new search."
+            products_to_display.sort(key=lambda p: parse_price(p.get('price')))
+
+            # Save to temp DB
+            temp_db["products"] = products_to_display[:15]
+            last_results = products_to_display[:15]
+            temp_db["counter"] = 1
+
+            bot_message = f"I found {len(all_products)} products for '{keywords}'. Here are the top results."
+            return ChatResponse(bot_message=bot_message, products=temp_db["products"])
+
+        # --- General Chat ---
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        bot_response = completion.choices[0].message.content
+        return ChatResponse(bot_message=bot_response, products=[])
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-    if not products_to_display and not bot_message:
-        bot_message = "Sorry, I couldn't find any products that match your specific request."
-    
-    products_to_display.sort(key=lambda p: parse_price(p.get('price')))
-    
-    state.chat_history.append((user_message, bot_message))
-
-    return ChatResponse(
-        bot_message=bot_message,
-        products_to_display=products_to_display,
-        new_state=state
-    )
-
-# --- Serve Static Files ---
+# -------------------------------
+# Serve Frontend
+# -------------------------------
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
     return FileResponse('templates/index.html')
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import uvicorn
     print("--- Starting ShopSmart AI Assistant ---")
     print("Your chatbot will be available at: http://127.0.0.1:8000")
     if not os.path.exists(".env.sh"):
         print("\nFATAL ERROR: '.env.sh' not found.")
     else:
-        uvicorn.run("backend:app", host="0.0.0.0", port=8000, reload=True)
+        uvicorn.run("backend:app", host="127.0.0.1", port=8000, reload=True)

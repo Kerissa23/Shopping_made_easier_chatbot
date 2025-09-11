@@ -4,25 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ShopSmart AI Assistant</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=3">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="chat-container">
+        <!-- Header -->
         <div class="chat-header">
             <h2>🛍️ ShopSmart AI</h2>
             <p>Your Personal Shopping Assistant</p>
         </div>
+
+        <!-- Chat messages -->
         <div class="chat-box" id="chat-box">
-            <!-- Chat messages will be dynamically added here -->
+            <!-- Messages will be dynamically appended here -->
         </div>
+
+        <!-- Chat input -->
         <form class="chat-input" id="chat-form">
-            <input type="text" id="user-input" placeholder="Ask me to find a product..." autocomplete="off">
+            <input 
+                type="text" 
+                id="user-input" 
+                placeholder="Ask me to find a product..." 
+                autocomplete="off" 
+                required
+            >
             <button type="submit" id="send-button">Send</button>
         </form>
     </div>
-    <script src="/static/script.js"></script>
+
+    <!-- Script -->
+    <script src="/static/script.js?v=3" defer></script>
 </body>
 </html>
