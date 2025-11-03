@@ -29,5 +29,5 @@ Video:
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/Kerissa23/Shopping_made_easier_chatbot
 cd shopping_chatbot
