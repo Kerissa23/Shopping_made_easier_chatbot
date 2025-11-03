@@ -2,7 +2,8 @@
 
 ShopSmart AI is an intelligent shopping assistant that helps users find products across multiple e-commerce platforms (Flipkart, Myntra, Snapdeal). It leverages the power of Large Language Models (LLMs) for natural language understanding and ChromaDB for persistent storage of chat history and scraped product data, enabling a more informed and conversational shopping experience through Retrieval Augmented Generation (RAG).
 
-
+Video:
+[https://github.com/Kerissa23/Shopping_made_easier_chatbot/blob/main/Recording%202025-11-03%20175319.gif]
 ## Features
 
 *   **Multi-Platform Product Search:** Aggregates product data from Flipkart, Myntra, and Snapdeal based on user queries.
